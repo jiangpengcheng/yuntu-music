@@ -182,6 +182,18 @@ final class FloatingPlayer {
   }
 
   private void loadLyrics(final Track track) {
+    if (service.isBluetooth()) {
+      if (!track.id.equals(lyricSong)) {
+        lyricVersion++;
+        lyricSong = track.id;
+      }
+      JSONObject data = service.bluetoothPresentation();
+      lyricLines = data.optJSONArray("lines");
+      lyricMessage = data.optString("plain");
+      if (lyricMessage.length() == 0) lyricMessage = data.optString("message");
+      lyricFailed = false;
+      return;
+    }
     if (track.id.equals(lyricSong)) return;
     lyricSong = track.id;
     lyricLines = null;
@@ -265,6 +277,9 @@ final class FloatingPlayer {
             break;
           }
         }
+      }
+      if (service.isBluetooth() && (lyricLines == null || lyricLines.length() == 0)) {
+        current = service.bluetoothPresentation().optString("plain");
       }
       boolean firstCurrent = sentence < 0 || sentence % 2 == 0;
       setLyricRow(lyric, firstCurrent ? current : next, firstCurrent);

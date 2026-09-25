@@ -11,4 +11,5 @@
 <instrumentation android:name="io.github.yuntumusic.direct.NativeNetworkTest" android:targetPackage="io.github.yuntumusic.direct"/>
 <instrumentation android:name="io.github.yuntumusic.direct.NativePlaybackTest" android:targetPackage="io.github.yuntumusic.direct"/>
 <instrumentation android:name="io.github.yuntumusic.direct.OverlayTextTest" android:targetPackage="io.github.yuntumusic.direct"/>
+<instrumentation android:name="io.github.yuntumusic.direct.BluetoothTest" android:targetPackage="io.github.yuntumusic.direct"/>
 </manifest>
