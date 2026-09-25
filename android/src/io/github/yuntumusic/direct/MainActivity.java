@@ -35,6 +35,8 @@ public final class MainActivity extends Activity implements PlaybackService.List
   private PlayerViews.Art miniArt, albumArt;
   private PlayerViews.Progress bottomProgress;
   private PlayerViews.Lyrics lyricsView;
+  private TextView sourceChoice;
+  private PlayerViews.Icon queueButton;
   private TextView songTitle, songArtist, elapsed, total, accountLabel, playerStatus;
   private final ArrayList<TextView> navLabels = new ArrayList<TextView>();
   private String navSection = "当前播放",
@@ -390,15 +392,16 @@ public final class MainActivity extends Activity implements PlaybackService.List
                 if (service != null) service.cycleMode();
               }
             });
-    addActionIcon(
-        bar,
-        "queue",
-        "播放列表",
-        new Runnable() {
-          public void run() {
-            queue();
-          }
-        });
+    queueButton =
+        addActionIcon(
+            bar,
+            "queue",
+            "播放列表",
+            new Runnable() {
+              public void run() {
+                queue();
+              }
+            });
     nowPlaying();
   }
 
@@ -582,6 +585,18 @@ public final class MainActivity extends Activity implements PlaybackService.List
     LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(0, -1, 1);
     rlp.leftMargin = dp(compact ? 30 : 42);
     body.addView(right, rlp);
+    sourceChoice = text("音源 · 网易云  ▾", 14, ACCENT);
+    sourceChoice.setContentDescription("选择播放音源");
+    sourceChoice.setPadding(dp(10), 0, dp(10), 0);
+    sourceChoice.setBackground(bg(PANEL));
+    sourceChoice.setGravity(Gravity.CENTER_VERTICAL);
+    sourceChoice.setOnClickListener(
+        new View.OnClickListener() {
+          public void onClick(View v) {
+            chooseSource();
+          }
+        });
+    right.addView(sourceChoice, new LinearLayout.LayoutParams(-1, dp(38)));
     songTitle = text("让喜欢的音乐，一路相伴", compact ? 23 : 28, INK);
     songTitle.setTypeface(null, Typeface.BOLD);
     songTitle.setSingleLine(true);
@@ -618,6 +633,47 @@ public final class MainActivity extends Activity implements PlaybackService.List
     changed();
   }
 
+  private void chooseSource() {
+    final AlertDialog dialog = new AlertDialog.Builder(this).create();
+    LinearLayout panel = vertical();
+    panel.setPadding(dp(24), dp(18), dp(24), dp(18));
+    panel.setBackground(bg(PANEL));
+    panel.addView(text("选择播放音源", 22, INK));
+    panel.addView(
+        button(
+            "网易云音乐",
+            new Runnable() {
+              public void run() {
+                if (service != null) service.selectSource(false);
+                dialog.dismiss();
+                nowPlaying();
+              }
+            }));
+    panel.addView(
+        button(
+            "蓝牙音乐 · 手机播放到车机",
+            new Runnable() {
+              public void run() {
+                if (service != null) service.selectSource(true);
+                dialog.dismiss();
+                nowPlaying();
+              }
+            }));
+    panel.addView(text("先在车机系统中连接手机蓝牙，并开启媒体音频。", 13, MUTED));
+    dialog.setView(panel);
+    dialog.show();
+    if (dialog.getWindow() != null)
+      dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+  }
+
+  private void renderBluetoothLyrics() {
+    JSONObject data = service.bluetoothPresentation();
+    lyricLines = data.optJSONArray("lines");
+    lyricPlain = data.optString("plain");
+    lyricEmpty = data.optString("message");
+    renderLyrics();
+  }
+
   private void renderLyrics() {
     if (lyricsView != null) lyricsView.data(lyricLines, lyricPlain, lyricEmpty);
   }
@@ -631,6 +687,10 @@ public final class MainActivity extends Activity implements PlaybackService.List
     if (albumArt != null) ArtworkLoader.load(albumArt, coverUrl, 480);
     ArtworkLoader.load(miniArt, coverUrl, 160);
     renderLyrics();
+    if (service != null && service.isBluetooth()) {
+      renderBluetoothLyrics();
+      return;
+    }
     Api.request(
         this,
         "GET",
@@ -1153,6 +1213,10 @@ public final class MainActivity extends Activity implements PlaybackService.List
   }
 
   private void queue() {
+    if (service != null && service.isBluetooth()) {
+      toast("蓝牙播放队列请在手机播放器中查看");
+      return;
+    }
     section = "队列";
     selectNav("");
     page("播放列表");
@@ -1353,6 +1417,12 @@ public final class MainActivity extends Activity implements PlaybackService.List
     LinearLayout form = vertical();
     form.setPadding(dp(20), dp(6), dp(20), dp(4));
     form.addView(text("原生直连网易云 · 无需服务地址和访问口令", 14, MUTED));
+    final CheckBox bluetoothLyrics = new CheckBox(this);
+    bluetoothLyrics.setText("蓝牙歌名作为歌词显示");
+    bluetoothLyrics.setTextColor(INK);
+    bluetoothLyrics.setChecked(prefs.getBoolean("bluetoothTitleLyrics", false));
+    form.addView(bluetoothLyrics);
+    form.addView(text("仅用于手机播放器通过蓝牙歌名发送歌词的模式，需在手机端开启。仅收到当前句时不显示下一句。", 12, MUTED));
     final String[] values = {"standard", "higher", "exhigh", "lossless"};
     final Spinner quality = new Spinner(this);
     quality.setAdapter(
@@ -1465,6 +1535,7 @@ public final class MainActivity extends Activity implements PlaybackService.List
                 android.content.SharedPreferences.Editor changes = prefs.edit();
                 for (OverlayStyleEditor style : textStyles) style.write(changes);
                 changes
+                    .putBoolean("bluetoothTitleLyrics", bluetoothLyrics.isChecked())
                     .putString("quality", values[quality.getSelectedItemPosition()])
                     .putInt("fmCount", counts[fmCount.getSelectedItemPosition()])
                     .putBoolean("screen", screen.isChecked())
@@ -1631,6 +1702,18 @@ public final class MainActivity extends Activity implements PlaybackService.List
     if (service == null) return;
     renderQueue();
     Track t = service.current();
+    boolean bluetooth = service.isBluetooth();
+    if (sourceChoice != null) sourceChoice.setText(bluetooth ? "音源 · 蓝牙音乐  ▾" : "音源 · 网易云  ▾");
+    if (seek != null) seek.setEnabled(!bluetooth);
+    if (mode != null) {
+      mode.setEnabled(!bluetooth);
+      mode.setAlpha(bluetooth ? .3f : 1f);
+    }
+    if (queueButton != null) {
+      queueButton.setEnabled(!bluetooth);
+      queueButton.setAlpha(bluetooth ? .3f : 1f);
+    }
+    if (bluetooth) renderBluetoothLyrics();
     nowTitle.setText(t == null ? "云途音乐" : t.name);
     nowState.setText(t == null ? "选一首歌，开始旅途" : t.artist);
     String state =
@@ -1675,7 +1758,7 @@ public final class MainActivity extends Activity implements PlaybackService.List
   }
 
   private void updateLikeButton() {
-    boolean has = service != null && service.current() != null;
+    boolean has = service != null && service.current() != null && !service.isBluetooth();
     if (likeButton != null) {
       likeButton.tinted = liked;
       likeButton.invalidate();
@@ -1693,6 +1776,11 @@ public final class MainActivity extends Activity implements PlaybackService.List
     final int version = ++likeVersion;
     liked = false;
     likeBusy = true;
+    if (service != null && service.isBluetooth()) {
+      likeBusy = false;
+      updateLikeButton();
+      return;
+    }
     updateLikeButton();
     Api.request(
         this,
@@ -1713,6 +1801,7 @@ public final class MainActivity extends Activity implements PlaybackService.List
   }
 
   private void toggleLike() {
+    if (service != null && service.isBluetooth()) return;
     if (service == null || service.current() == null || likeBusy) return;
     final Track track = service.current();
     final boolean desired = !liked;
@@ -1736,6 +1825,7 @@ public final class MainActivity extends Activity implements PlaybackService.List
   }
 
   private void choosePlaylist() {
+    if (service != null && service.isBluetooth()) return;
     if (service == null || service.current() == null) {
       toast("请先选择歌曲");
       return;

@@ -30,6 +30,7 @@ python3 scripts/run_android_tests.py --suite FloatingLyricsTest
 | FloatingLyricsTest | 两行交替、颜色、宽度自适应、空歌词不拦截、窗口外点击、拖动与返回应用 |
 | OverlayTextTest | 字号颜色独立保存、下一句颜色、草稿取消/应用、恢复默认、大字号/低高度布局 |
 | StartupTest | 开机和自动播放选择、等待网络、用户操作取消自动播放 |
+| BluetoothTest | CS11 Binder 契约、播放指令、断连/重连、歌词、悬浮窗、音源切换与焦点；不连接实体手机 |
 | OverlayCompatTest | 生命周期和权限策略模拟、CS11 锁屏报告兼容分支 |
 
 每个 fixture 测试独立启动 `android/test/fixture.mjs`，只监听 `127.0.0.1:3211`；模拟器通过 `10.0.2.2` 访问。测试用音频现场合成，不需要账号或真实歌曲。`vectors.json` 中的私钥是公开的合成密码学测试向量；Node crypto 会独立解码 Java 生成的 xeapi 请求，验证 X25519/GCM/AES 协议。

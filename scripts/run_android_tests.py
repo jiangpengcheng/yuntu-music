@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "android/build"
 PACKAGE = "io.github.yuntumusic.direct"
 OFFLINE = ["NativeTest", "NativeNetworkTest", "MediaOutputTest", "OverlayTextTest",
-           "LargeCardTest", "FloatingLyricsTest", "StartupTest", "OverlayCompatTest"]
+           "LargeCardTest", "FloatingLyricsTest", "StartupTest", "OverlayCompatTest", "BluetoothTest"]
 FIXTURE = set(OFFLINE) - {"NativeTest", "NativeNetworkTest"}
 LIVE = ["NativeLiveTest", "NativePlaybackTest"]
 

@@ -29,6 +29,8 @@ public final class PlaybackService extends Service
   private Listener listener;
   private FloatingPlayer floatingPlayer;
   private StartupPlayback startup;
+  private BluetoothSource bluetooth;
+  private boolean bluetoothFocusSuppressed, bluetoothFocusLost;
   private boolean uiVisible, stopped = true, buffering;
   private int publishedDuration = -1;
   private final Runnable mediaTick =
@@ -96,20 +98,97 @@ public final class PlaybackService extends Service
     if (floatingPlayer != null) floatingPlayer.update(uiVisible, stopped);
   }
 
+  public boolean isBluetooth() {
+    return bluetooth != null;
+  }
+
+  public JSONObject bluetoothPresentation() {
+    return bluetooth == null ? new JSONObject() : bluetooth.presentation();
+  }
+
+  public boolean bluetoothReady() {
+    return bluetooth != null && bluetooth.ready();
+  }
+
+  public void selectSource(boolean useBluetooth) {
+    selectSource(useBluetooth, true);
+  }
+
+  private void selectSource(boolean useBluetooth, boolean manual) {
+    if (manual) startup.cancel();
+    if (useBluetooth == isBluetooth()) return;
+    generation++;
+    invalidatePages();
+    releasePlayer();
+    releaseFocus();
+    audio.unregisterRemoteControlClient(remote);
+    audio.unregisterMediaButtonEventReceiver(receiver);
+    resetUnavailable();
+    playing = wantsPlay = resumeOnFocus = buffering = false;
+    bluetoothFocusSuppressed = false;
+    bluetoothFocusLost = false;
+    if (bluetooth != null) {
+      bluetooth.close(true);
+      bluetooth = null;
+    }
+    Api.prefs(this)
+        .edit()
+        .putString("playbackSource", useBluetooth ? "bluetooth" : "cloud")
+        .apply();
+    stopped = !useBluetooth;
+    if (useBluetooth) {
+      bluetooth =
+          new BluetoothSource(
+              this,
+              new BluetoothSource.Listener() {
+                public void changed() {
+                  bluetoothChanged();
+                }
+              });
+      startService(new Intent(this, PlaybackService.class));
+      bluetooth.open();
+    } else {
+      state = "网易云 · 点击播放继续原队列";
+      remote.setPlaybackState(RemoteControlClient.PLAYSTATE_STOPPED, 0, 0f);
+      stopForeground(true);
+    }
+    queueRevision++;
+    changed();
+  }
+
+  private void bluetoothChanged() {
+    if (bluetooth == null) return;
+    // A deleted/disabled stock player leaves focus, steering keys and dashboard to us.
+    // If it is present, let it keep ownership to avoid two clients pausing the same phone.
+    if (!bluetooth.isPlaying() && !bluetoothFocusLost) bluetoothFocusSuppressed = false;
+    if (!bluetooth.usesOriginalPlayer()
+        && bluetooth.isPlaying()
+        && !bluetoothFocusSuppressed
+        && !resumeOnFocus
+        && !hasFocus) {
+      if (!acquireFocus()) {
+        bluetoothFocusSuppressed = true;
+        bluetooth.command(BluetoothSource.PAUSE);
+      }
+    }
+    changed();
+  }
+
   public Track current() {
+    if (bluetooth != null) return bluetooth.track();
     return index >= 0 && index < queue.size() ? queue.get(index) : null;
   }
 
   public boolean isPlaying() {
-    return playing;
+    return bluetooth != null ? bluetooth.isPlaying() : playing;
   }
 
   public String status() {
-    return state;
+    return bluetooth != null ? bluetooth.status() : state;
   }
 
   public String quality() {
-    return actualQuality;
+    return bluetooth != null ? "" : actualQuality;
   }
 
   public String mode() {
@@ -117,7 +196,7 @@ public final class PlaybackService extends Service
   }
 
   public ArrayList<Track> tracks() {
-    return new ArrayList<Track>(queue);
+    return bluetooth != null ? new ArrayList<Track>() : new ArrayList<Track>(queue);
   }
 
   public int queueRevision() {
@@ -143,7 +222,7 @@ public final class PlaybackService extends Service
   }
 
   public void loadRemainingQueue() {
-    if (fm || queue.isEmpty() || !pageMore || pagePath.length() == 0) return;
+    if (isBluetooth() || fm || queue.isEmpty() || !pageMore || pagePath.length() == 0) return;
     fillQueue = true;
     requestPage(false);
   }
@@ -160,15 +239,19 @@ public final class PlaybackService extends Service
   }
 
   public int position() {
-    return ready && player != null ? player.position() : 0;
+    return bluetooth != null
+        ? bluetooth.position()
+        : ready && player != null ? player.position() : 0;
   }
 
   public int duration() {
+    if (bluetooth != null) return bluetooth.duration();
     int value = player == null ? 0 : player.duration();
     return value > 0 ? value : current() == null ? 0 : current().duration;
   }
 
   public void seek(int ms) {
+    if (isBluetooth()) return;
     if (ready && player != null) {
       lastProgressAt = SystemClock.elapsedRealtime();
       player.seek(ms);
@@ -176,6 +259,7 @@ public final class PlaybackService extends Service
   }
 
   public void cycleMode() {
+    if (isBluetooth()) return;
     mode = mode.equals("order") ? "shuffle" : mode.equals("shuffle") ? "repeat" : "order";
     Api.prefs(this).edit().putString("mode", mode).apply();
     changed();
@@ -215,6 +299,8 @@ public final class PlaybackService extends Service
     handler.post(mediaTick);
     registerReceiver(noisy, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
     restore();
+    if ("bluetooth".equals(Api.prefs(this).getString("playbackSource", "cloud")))
+      selectSource(true, false);
     if (playlistQueue())
       handler.post(
           new Runnable() {
@@ -242,6 +328,7 @@ public final class PlaybackService extends Service
   }
 
   public void select(int selected) {
+    if (isBluetooth()) return;
     startup.cancel();
     if (selected >= 0 && selected < queue.size()) {
       resetUnavailable();
@@ -266,6 +353,7 @@ public final class PlaybackService extends Service
       ArrayList<Track> items, int selected, boolean radio, String path, int offset, boolean more) {
     startup.cancel();
     if (items.isEmpty()) return;
+    selectSource(false);
     invalidatePages();
     resetUnavailable();
     pagePath = path;
@@ -283,12 +371,21 @@ public final class PlaybackService extends Service
 
   public void toggle() {
     startup.cancel();
-    if (wantsPlay || playing) pause();
+    if (isPlaying() || wantsPlay) pause();
     else play();
   }
 
   public void play() {
     startup.cancel();
+    if (bluetooth != null) {
+      stopped = false;
+      bluetoothFocusSuppressed = false;
+      bluetoothFocusLost = false;
+      if (bluetooth.usesOriginalPlayer() || !bluetooth.ready() || acquireFocus())
+        bluetooth.command(BluetoothSource.PLAY);
+      else bluetooth.focusDenied();
+      return;
+    }
     if (current() == null) {
       state = "请先选择歌曲";
       changed();
@@ -308,6 +405,14 @@ public final class PlaybackService extends Service
 
   public void pause() {
     startup.cancel();
+    if (bluetooth != null) {
+      resumeOnFocus = false;
+      bluetoothFocusSuppressed = true;
+      bluetoothFocusLost = false;
+      bluetooth.command(BluetoothSource.PAUSE);
+      releaseFocus();
+      return;
+    }
     resumeOnFocus = false;
     wantsPlay = false;
     playing = false;
@@ -323,6 +428,11 @@ public final class PlaybackService extends Service
 
   public void stopPlayback() {
     startup.cancel();
+    if (bluetooth != null) {
+      bluetooth.close(true);
+      bluetooth = null;
+      Api.prefs(this).edit().putString("playbackSource", "cloud").apply();
+    }
     generation++;
     invalidatePages();
     resetUnavailable();
@@ -342,6 +452,11 @@ public final class PlaybackService extends Service
   }
 
   public void next(boolean user) {
+    if (bluetooth != null) {
+      startup.cancel();
+      bluetooth.command(BluetoothSource.NEXT);
+      return;
+    }
     if (user) startup.cancel();
     if (queue.isEmpty()) return;
     if (user) resetUnavailable();
@@ -367,6 +482,11 @@ public final class PlaybackService extends Service
   }
 
   public void previous() {
+    if (bluetooth != null) {
+      startup.cancel();
+      bluetooth.command(BluetoothSource.PREVIOUS);
+      return;
+    }
     startup.cancel();
     if (queue.isEmpty()) return;
     resetUnavailable();
@@ -515,6 +635,7 @@ public final class PlaybackService extends Service
   }
 
   private void load() {
+    if (isBluetooth()) return;
     if (current() == null) return;
     final int ticket = ++generation;
     releasePlayer();
@@ -772,6 +893,29 @@ public final class PlaybackService extends Service
   }
 
   public void onAudioFocusChange(int change) {
+    if (bluetooth != null) {
+      if (bluetooth.usesOriginalPlayer()) return;
+      if (change == AudioManager.AUDIOFOCUS_LOSS
+          || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT
+          || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+        startup.cancel();
+        // Pausing on duck is preferable to a global volume change in a shared Bluetooth renderer.
+        resumeOnFocus = change != AudioManager.AUDIOFOCUS_LOSS && bluetooth.isPlaying();
+        bluetoothFocusSuppressed = true;
+        bluetoothFocusLost = true;
+        if (change != AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) hasFocus = false;
+        bluetooth.command(BluetoothSource.PAUSE);
+      } else if (change == AudioManager.AUDIOFOCUS_GAIN) {
+        hasFocus = true;
+        bluetoothFocusSuppressed = false;
+        bluetoothFocusLost = false;
+        if (resumeOnFocus) {
+          resumeOnFocus = false;
+          bluetooth.command(BluetoothSource.PLAY);
+        }
+      }
+      return;
+    }
     if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT)
       startup.cancel();
     if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
@@ -840,7 +984,8 @@ public final class PlaybackService extends Service
   }
 
   private void publishPlaybackPosition() {
-    boolean advancing = playing && wantsPlay && !buffering;
+    boolean advancing =
+        bluetooth != null ? bluetooth.isPlaying() : playing && wantsPlay && !buffering;
     int playbackState =
         advancing
             ? RemoteControlClient.PLAYSTATE_PLAYING
@@ -874,18 +1019,20 @@ public final class PlaybackService extends Service
           new Notification.Builder(this)
               .setSmallIcon(android.R.drawable.ic_media_play)
               .setContentTitle(t.name)
-              .setContentText(t.artist + " · " + state)
+              .setContentText(t.artist + " · " + status())
               .setContentIntent(
                   PendingIntent.getActivity(
                       this,
                       10,
                       new Intent(this, MainActivity.class),
                       PendingIntent.FLAG_UPDATE_CURRENT))
-              .setOngoing(playing || wantsPlay)
+              .setOngoing(isPlaying() || wantsPlay)
               .addAction(android.R.drawable.ic_media_previous, "上一首", action("previous", 1))
               .addAction(
-                  playing ? android.R.drawable.ic_media_pause : android.R.drawable.ic_media_play,
-                  playing ? "暂停" : "播放",
+                  isPlaying()
+                      ? android.R.drawable.ic_media_pause
+                      : android.R.drawable.ic_media_play,
+                  isPlaying() ? "暂停" : "播放",
                   action("toggle", 2))
               .addAction(android.R.drawable.ic_media_next, "下一首", action("next", 3))
               .build();
@@ -944,6 +1091,10 @@ public final class PlaybackService extends Service
   }
 
   public void onDestroy() {
+    if (bluetooth != null) {
+      bluetooth.close(false);
+      bluetooth = null;
+    }
     if (startup != null) startup.cancel();
     generation++;
     invalidatePages();

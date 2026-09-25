@@ -26,13 +26,13 @@ final class StartupPlayback {
             service.startupStatus("自动播放已取消");
             return;
           }
-          if (network.connected()) {
+          if (service.isBluetooth() ? service.bluetoothReady() : network.connected()) {
             pending = false;
             Log.i("YuntuStartup", "auto_play_begin");
             service.play();
           } else if (SystemClock.elapsedRealtime() >= deadline) {
             cancel();
-            service.startupStatus("网络尚未连接，请联网后手动播放");
+            service.startupStatus(service.isBluetooth() ? "手机蓝牙尚未连接，请连接后手动播放" : "网络尚未连接，请联网后手动播放");
             Log.i("YuntuStartup", "network_wait_expired");
           } else handler.postDelayed(this, 1000);
         }
@@ -71,7 +71,7 @@ final class StartupPlayback {
     pending = true;
     deadline = SystemClock.elapsedRealtime() + 60000;
     service.startService(new android.content.Intent(service, PlaybackService.class));
-    service.startupStatus("正在等待网络，准备自动播放…");
+    service.startupStatus(service.isBluetooth() ? "正在等待手机蓝牙，准备自动播放…" : "正在等待网络，准备自动播放…");
     handler.post(attempt);
   }
 
