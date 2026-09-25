@@ -1,0 +1,3 @@
+-keep class io.github.yuntumusic.direct.** { *; }
+-dontobfuscate
+-dontoptimize

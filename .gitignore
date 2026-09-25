@@ -1,0 +1,16 @@
+# Generated output and private signing material
+android/build/
+android/.signing/
+android/libs/*.jar
+.cache/
+dist/
+__pycache__/
+*.py[cod]
+*.apk
+*.idsig
+*.jks
+*.keystore
+.env
+.env.*
+!.env.example
+.DS_Store

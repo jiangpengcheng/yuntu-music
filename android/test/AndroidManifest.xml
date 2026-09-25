@@ -1,0 +1,14 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="io.github.yuntumusic.direct.test">
+<uses-sdk android:minSdkVersion="19" android:targetSdkVersion="19"/>
+<application android:label="Yuntu local tests"/>
+<instrumentation android:name="io.github.yuntumusic.direct.MediaOutputTest" android:targetPackage="io.github.yuntumusic.direct"/>
+<instrumentation android:name="io.github.yuntumusic.direct.FloatingLyricsTest" android:targetPackage="io.github.yuntumusic.direct"/>
+<instrumentation android:name="io.github.yuntumusic.direct.StartupTest" android:targetPackage="io.github.yuntumusic.direct"/>
+<instrumentation android:name="io.github.yuntumusic.direct.OverlayCompatTest" android:targetPackage="io.github.yuntumusic.direct"/>
+<instrumentation android:name="io.github.yuntumusic.direct.LargeCardTest" android:targetPackage="io.github.yuntumusic.direct"/>
+<instrumentation android:name="io.github.yuntumusic.direct.NativeTest" android:targetPackage="io.github.yuntumusic.direct"/>
+<instrumentation android:name="io.github.yuntumusic.direct.NativeLiveTest" android:targetPackage="io.github.yuntumusic.direct"/>
+<instrumentation android:name="io.github.yuntumusic.direct.NativeNetworkTest" android:targetPackage="io.github.yuntumusic.direct"/>
+<instrumentation android:name="io.github.yuntumusic.direct.NativePlaybackTest" android:targetPackage="io.github.yuntumusic.direct"/>
+<instrumentation android:name="io.github.yuntumusic.direct.OverlayTextTest" android:targetPackage="io.github.yuntumusic.direct"/>
+</manifest>
